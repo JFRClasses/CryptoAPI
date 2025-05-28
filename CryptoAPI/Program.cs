@@ -79,12 +79,13 @@ app.MapPost("/login", async (UserCDTO userDto, ApplicationDbContext db) =>
         });
     }
 
-    var result = Tools.DecodePassword(user.Password, userDto.Password);
+    var result = Tools.DecodePassword(userDto.Password,user.Password);
     if (result)
     {
         return Results.Ok(new LoginResponse
         {
             isLogged = true,
+            UserId = user.Id,
             Message = "Inicio de sesión exitoso."
         });
     }
@@ -92,6 +93,7 @@ app.MapPost("/login", async (UserCDTO userDto, ApplicationDbContext db) =>
     return Results.Ok(new LoginResponse
     {
         isLogged = false,
+        UserId = 0,
         Message = "Correo o contraseña incorrectos."
     });
 });
