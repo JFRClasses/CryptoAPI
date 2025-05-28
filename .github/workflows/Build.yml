@@ -1,0 +1,43 @@
+name: Docker Build & Publish
+
+on:
+  push:
+    branches:
+      - main
+      - staging
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v2
+
+      - name: Build Docker Image
+        run: docker build -t ghcr.io/juanfr97/crypto-api:${{ github.sha }} .
+
+      - name: Tag Latest
+        run: docker tag ghcr.io/juanfr97/crypto-api:${{ github.sha }} ghcr.io/juanfr97/crypto-api:latest
+
+      - name: Log into GitHub Container Registry
+        run: docker login ghcr.io -u ${{ github.repository_owner }} --password ${{ secrets.CR_PAT }}
+
+      - name: Push Docker Images to GitHub Container Registry
+        run: |
+          docker push ghcr.io/juanfr97/crypto-api:${{ github.sha }}
+          docker push ghcr.io/juanfr97/crypto-api:latest
+  
+  deploy:
+    needs: build-and-push
+    environment: staging
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to DigitalOcean
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.DROPLET_IP }}
+          username: ${{ secrets.DROPLET_USER }}
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          script: |
+            sudo docker pull ghcr.io/juanfr97/crypto-api:latest
+            sudo docker compose up -d
