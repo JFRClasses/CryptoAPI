@@ -193,7 +193,7 @@ app.MapPost("/wallet/transaction", async (TransactionCDTO dto, ApplicationDbCont
 {
     if (dto.TransactionType != TransactionType.BUY && dto.TransactionType != TransactionType.SELL)
     {
-        return Results.Ok(new BodyResponse<Transaction>
+        return Results.Ok(new BodyResponse<TransactionDTO>
         {
             Body = null,
             MessageTitle = "Error",
@@ -207,7 +207,7 @@ app.MapPost("/wallet/transaction", async (TransactionCDTO dto, ApplicationDbCont
 
     if (wallet == null)
     {
-        return Results.Ok(new BodyResponse<Transaction>
+        return Results.Ok(new BodyResponse<TransactionDTO>
         {
             Body = null,
             MessageTitle = "Error",
@@ -227,7 +227,7 @@ app.MapPost("/wallet/transaction", async (TransactionCDTO dto, ApplicationDbCont
 
     if (dto.TransactionType == TransactionType.SELL && dto.Amount > balanceBTC)
     {
-        return Results.Ok(new BodyResponse<Transaction>
+        return Results.Ok(new BodyResponse<TransactionDTO>
         {
             Body = null,
             MessageTitle = "Error",
@@ -248,22 +248,30 @@ app.MapPost("/wallet/transaction", async (TransactionCDTO dto, ApplicationDbCont
     db.Transaction.Add(transaction);
     await db.SaveChangesAsync();
 
-    return Results.Ok(new BodyResponse<Transaction>
+    var result = new TransactionDTO
     {
-        Body = transaction,
+        Id = transaction.Id,
+        Amount = transaction.Amount,
+        CostPerCoin = transaction.CostPerCoin,
+        TotalUSD = transaction.TotalUSD,
+        TransactionType = transaction.TransactionType,
+        Date = transaction.Date
+    };
+
+    return Results.Ok(new BodyResponse<TransactionDTO>
+    {
+        Body = result,
         MessageTitle = "Éxito",
         MessageContent = "Transacción registrada correctamente."
     });
 });
 app.MapGet("/wallet/{walletId:int}/transactions/latest", async (int walletId, ApplicationDbContext db) =>
 {
-    var wallet = await db.Wallet
-        .Include(w => w.Transactions)
-        .FirstOrDefaultAsync(w => w.Id == walletId);
+    var exists = await db.Wallet.AnyAsync(w => w.Id == walletId);
 
-    if (wallet == null)
+    if (!exists)
     {
-        return Results.Ok(new BodyResponse<List<Transaction>>
+        return Results.Ok(new BodyResponse<List<TransactionDTO>>
         {
             Body = null,
             MessageTitle = "Error",
@@ -271,12 +279,22 @@ app.MapGet("/wallet/{walletId:int}/transactions/latest", async (int walletId, Ap
         });
     }
 
-    var latestTransactions = wallet.Transactions
+    var latestTransactions = await db.Transaction
+        .Where(t => t.WalletId == walletId)
         .OrderByDescending(t => t.Date)
         .Take(10)
-        .ToList();
+        .Select(t => new TransactionDTO
+        {
+            Id = t.Id,
+            Amount = t.Amount,
+            CostPerCoin = t.CostPerCoin,
+            TotalUSD = t.TotalUSD,
+            TransactionType = t.TransactionType,
+            Date = t.Date
+        })
+        .ToListAsync();
 
-    return Results.Ok(new BodyResponse<List<Transaction>>
+    return Results.Ok(new BodyResponse<List<TransactionDTO>>
     {
         Body = latestTransactions,
         MessageTitle = "Éxito",
