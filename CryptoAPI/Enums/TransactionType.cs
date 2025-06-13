@@ -2,6 +2,6 @@ namespace CryptoAPI.Enums;
 
 public enum TransactionType
 {
-    BUY = 1,
-    SELL
+    SELL = 0,
+    BUY,
 }

@@ -5,7 +5,7 @@ namespace CryptoAPI.Models;
 public class Transaction
 {
     public int Id { get; set; }
-    public double Price { get; set; }
+    public double Amount { get; set; }
     public double CostPerCoin { get; set; }
     public double TotalUSD { get; set; }
     public int WalletId { get; set; }

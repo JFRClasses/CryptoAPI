@@ -1,5 +1,7 @@
+using System.Text.Json;
 using CryptoAPI;
 using CryptoAPI.DTOs;
+using CryptoAPI.Enums;
 using CryptoAPI.Models;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -8,7 +10,13 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddOpenApi();
 builder.Services.AddDbContext<ApplicationDbContext>(o => o.UseSqlServer(builder.Configuration.GetConnectionString("defaultConnection")));
-
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+builder.Services.AddHttpClient();
+builder.Services.Configure<Microsoft.AspNetCore.Http.Json.JsonOptions>(options =>
+{
+    options.SerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
+});
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
@@ -128,4 +136,177 @@ app.MapPost("/login", async (UserCDTO userDto, ApplicationDbContext db) =>
     });
 });
 
+
+app.MapGet("/bitcoin/price", async (IHttpClientFactory httpClientFactory) =>
+{
+    var client = httpClientFactory.CreateClient();
+    var response = await client.GetAsync("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd");
+
+    if (!response.IsSuccessStatusCode)
+    {
+        return Results.Ok(new BodyResponse<object>
+        {
+            Body = null,
+            MessageTitle = "Error",
+            MessageContent = "No se pudo obtener el precio del Bitcoin."
+        });
+    }
+
+    var json = await response.Content.ReadAsStringAsync();
+
+    return Results.Ok(new BodyResponse<object>
+    {
+        Body = JsonSerializer.Deserialize<object>(json),
+        MessageTitle = "Éxito",
+        MessageContent = "Precio actual del Bitcoin obtenido correctamente."
+    });
+});
+
+
+app.MapGet("/user/{id:int}", async (int id, ApplicationDbContext db) =>
+{
+    var user = await db.SystemUser
+        .Include(u => u.Wallets)
+        .ThenInclude(w => w.Transactions)
+        .FirstOrDefaultAsync(u => u.Id == id);
+
+    if (user == null)
+    {
+        return Results.Ok(new BodyResponse<SystemUser>
+        {
+            Body = null,
+            MessageTitle = "Error",
+            MessageContent = "Usuario no encontrado."
+        });
+    }
+
+    return Results.Ok(new BodyResponse<SystemUser>
+    {
+        Body = user,
+        MessageTitle = "Éxito",
+        MessageContent = "Usuario encontrado correctamente."
+    });
+});
+
+
+app.MapPost("/wallet/transaction", async (TransactionCDTO dto, ApplicationDbContext db) =>
+{
+    if (dto.TransactionType != TransactionType.BUY && dto.TransactionType != TransactionType.SELL)
+    {
+        return Results.Ok(new BodyResponse<Transaction>
+        {
+            Body = null,
+            MessageTitle = "Error",
+            MessageContent = "Solo se permiten transacciones de tipo Buy o Sell."
+        });
+    }
+
+    var wallet = await db.Wallet
+                         .Include(w => w.Transactions)
+                         .FirstOrDefaultAsync(w => w.Id == dto.WalletId);
+
+    if (wallet == null)
+    {
+        return Results.Ok(new BodyResponse<Transaction>
+        {
+            Body = null,
+            MessageTitle = "Error",
+            MessageContent = "Wallet no encontrada."
+        });
+    }
+
+    double totalBought = wallet.Transactions
+        .Where(t => t.TransactionType == TransactionType.BUY)
+        .Sum(t => t.Amount);
+
+    double totalSold = wallet.Transactions
+        .Where(t => t.TransactionType == TransactionType.SELL)
+        .Sum(t => t.Amount);
+
+    double balanceBTC = totalBought - totalSold;
+
+    if (dto.TransactionType == TransactionType.SELL && dto.Amount > balanceBTC)
+    {
+        return Results.Ok(new BodyResponse<Transaction>
+        {
+            Body = null,
+            MessageTitle = "Error",
+            MessageContent = $"No puedes vender {dto.Amount} BTC. Solo tienes {balanceBTC} BTC disponibles."
+        });
+    }
+
+    var transaction = new Transaction
+    {
+        WalletId = wallet.Id,
+        Amount = dto.Amount,
+        CostPerCoin = dto.CostPerCoin,
+        TotalUSD = dto.Amount * dto.CostPerCoin,
+        TransactionType = dto.TransactionType,
+        Date = DateTime.UtcNow
+    };
+
+    db.Transaction.Add(transaction);
+    await db.SaveChangesAsync();
+
+    return Results.Ok(new BodyResponse<Transaction>
+    {
+        Body = transaction,
+        MessageTitle = "Éxito",
+        MessageContent = "Transacción registrada correctamente."
+    });
+});
+app.MapGet("/wallet/{walletId:int}/transactions/latest", async (int walletId, ApplicationDbContext db) =>
+{
+    var wallet = await db.Wallet
+        .Include(w => w.Transactions)
+        .FirstOrDefaultAsync(w => w.Id == walletId);
+
+    if (wallet == null)
+    {
+        return Results.Ok(new BodyResponse<List<Transaction>>
+        {
+            Body = null,
+            MessageTitle = "Error",
+            MessageContent = "Wallet no encontrada."
+        });
+    }
+
+    var latestTransactions = wallet.Transactions
+        .OrderByDescending(t => t.Date)
+        .Take(10)
+        .ToList();
+
+    return Results.Ok(new BodyResponse<List<Transaction>>
+    {
+        Body = latestTransactions,
+        MessageTitle = "Éxito",
+        MessageContent = "Últimas 10 transacciones obtenidas correctamente."
+    });
+});
+
+app.MapGet("/wallet/{walletId:int}/transactions", async (int walletId, ApplicationDbContext db) =>
+{
+    var wallet = await db.Wallet
+        .Include(w => w.Transactions)
+        .FirstOrDefaultAsync(w => w.Id == walletId);
+
+    if (wallet == null)
+    {
+        return Results.Ok(new BodyResponse<List<Transaction>>
+        {
+            Body = null,
+            MessageTitle = "Error",
+            MessageContent = "Wallet no encontrada."
+        });
+    }
+
+    return Results.Ok(new BodyResponse<List<Transaction>>
+    {
+        Body = wallet.Transactions,
+        MessageTitle = "Éxito",
+        MessageContent = "Transacciones obtenidas correctamente."
+    });
+});
+app.UseSwagger();
+app.UseSwaggerUI();
 app.Run();
